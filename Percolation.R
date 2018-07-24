@@ -10,7 +10,8 @@ Percolation <- function (SM, max_DP,cur_pars){
   FC=0.2825*cur_RD
   sat=0.415*cur_RD
   if (SM > FC){
-  cur_dp=max_DP*(SM-FC)/(sat-FC)
+  cur_dp = max_DP * (SM - FC)/(sat - FC)
+  if (cur_dp > max_DP){cur_dp = max_DP}
   return(cur_dp)
   } else {return(0)}
   }
