@@ -71,6 +71,7 @@ PET = c(4.1,4.4,5.7,5.2,5.3,4.7,4.4,4.6,4.6,3.9,3.5,3.7)
 rho1 = 0.3
 #The max percolation rate calculated using Saturated hydraulic conductivity
 max_percolation = (5*10^-5)*(24*60*60) #mm/day; from Gowing paper
+Rice_max_percolation = 7 #mm/day; from Gowing paper
 
 #############################
 ##Box 3: Groundwater box
@@ -146,12 +147,13 @@ for(i in 1:10) {
   doy = yday(cur_date)
   cur_month = month(index(cur_date))#months[i]
   month_name = month.abb[cur_month]
-  cur_P = 100#test[i]
+  cur_P = coredata(t_daily[i]) #100#test[i]
   
   #Runoff Generation
   #Estimate the antecendant conditions of the catchment
   if(i > 5){
-    rain_5 = sum(t_daily[(i-5):(i-1)]) * 1000
+    #rain_5 = sum(t_daily[(i-5):(i-1)]) * 1000
+    rain_5 = 500
   } else {rain_5 = 30}
   
   j = 1
@@ -166,17 +168,29 @@ for(i in 1:10) {
       runoff_vol[i,j] = (LU_details$Per_Area[j] * t1_const$max_catch) * runoff[i,j] * (1/1000)
       if (i > 1) {
       temp_SM = SM1[i-1,j] + cur_P - runoff[i,j]
+      #Remove the interflow volume right away (if applicable)
+      if (temp_SM>cur_pars$RD*Soil_sat){
+        IF1[i,j] = temp_SM - cur_pars$RD*Soil_sat
+        temp_SM = temp_SM - IF1[i,j]
+      } else {
+        IF1[i,j] = 0
+      }
       #Basically call the function Percolation that uses one of the methods described in Raven
       DP1[i,j] = Percolation(temp_SM,max_percolation,cur_pars)
       #Estimate the evapotranspiration by first estimating the Water stress factor Ks
       TAW1 = (cur_pars$RD * Soil_FC)-(cur_pars$RD * Soil_WP)
       RAW1 = rho1 * TAW1
-      if (SM1[i-1,j] < (TAW1-RAW1)){
+      #Adjusted soil moisture is basically the total SM - WP
+      AdSM = temp_SM - (cur_pars$RD * Soil_WP)
+      if (AdSM < (TAW1-RAW1)){
+        #Keep an eye on whether to use SM1[i-1,j] or temp_SM
         Ks = SM1[i-1,j] / (TAW1-RAW1)
         ET1[i,j] = Ks * cur_kc * PET[cur_month]
       } else {
         ET1[i,j] = 1*cur_kc*PET[cur_month]
-        }
+      }
+      #The way it is setup right now the SM will never end the day at saturation point
+      SM1[i,j] = temp_SM - DP1[i,j] - ET1[i,j]
       } else {
         SM1[i,j] = cur_P - runoff[i,j]
         if (SM1[i,j]>cur_pars$RD*Soil_sat){
@@ -187,14 +201,36 @@ for(i in 1:10) {
         } else if (SM1[i,j] < cur_pars$RD * Soil_sat){
            DP1[i,j]=Percolation(SM1[i,j],max_percolation,cur_pars)
            IF1[i,j] = 0
-           #Need to add a value to scale the AET based on the soil moisture level
+           #Need to add a value to scale the AET based on the soil moisture level 
+           #Ignore the values generated at i=1
            ET1[i,j] = 1 * cur_kc * PET[cur_month]
            SM1[i,j] = SM1[i,j] - DP1[i,j] - IF1[i,j] - ET1[i,j]
+           if (SM1[i,j]<=0){SM1[i,j]=0}
       } else {
         (print('Error due to Deep percolation calculation'))
         } 
       } 
-    } 
+    } else if (cur_LU=='Rice'){
+      temp_SM = SM1[i-1,j] + cur_P
+      Rice_SM_sat = 0.415*cur_pars$RD
+      Rice_run_thresh = Rice_SM_sat + pad_BH
+      #Calculate the runoff from the rice fields here. Runoff only starts when the total SM value on the rice fields is greater than 
+      #the bund height + soil saturation water content
+      if (temp_SM > Rice_run_thresh){
+        runoff[i,j] = temp_SM - Rice_run_thresh
+        runoff_vol[i,j] = (LU_details$Per_Area[j] * t1_const$max_catch) * runoff[i,j] * (1/1000)
+        temp_SM = temp_SM - runoff[i,j]
+      } else if (temp_SM < Rice_run_thresh){
+        runoff[i,j] = 0
+        runoff_vol[i,j] = (LU_details$Per_Area[j] * t1_const$max_catch) * runoff[i,j] * (1/1000)
+      } else {print('Error due to Rice runoff calculation')}
+      #Start calculating deep percolation from the rice fields here using the method in Gowing paper
+      DP1[i,j] = Percolation_Rice(temp_SM,max_percolation,cur_pars)
+      
+      
+      
+    }
+
   }
   i=i+1
 }
