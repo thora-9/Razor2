@@ -37,9 +37,9 @@ t_daily = subdaily2daily(t2,FUN=sum)*1000
 #############################
 LU_details = tribble(
                     ~LU1, ~LU2, ~LU3, ~Per_Area,
+                    'Fallow','Fallow','Fallow',20,
                     'Rice', 'Cotton', 'Fallow', 50,
                     'KH_Millet', 'Fallow','Fallow',20,
-                    'Fallow','Fallow','Fallow',20,
                     'Juliflora','Fallow','Fallow',10)
 
 LU_num = 3                    
@@ -119,9 +119,13 @@ IF1 = matrix(nrow = length(t_daily),ncol = nrow(LU_details))
 AQ1 = vector()
 runoff_vol = matrix(nrow = length(t_daily),ncol = nrow(LU_details))
 
+HRU_Areas1 = t(LU_details$Per_Area)*
+
 #Tank variables
 inflow_f1 = vector()
 inflow_s1 = vector()
+t1_inflow = vector()
+t1_precip = vector()
 t1_area = vector()
 t1_area0 = 0
 t1_vol = vector()
@@ -135,7 +139,9 @@ t1_ET = vector()
 t1_all = data.frame(matrix(ncol = 8, nrow = 0))
 t1_const = as.data.frame(cbind(5e6,3.595,30,276405))
 colnames(t1_const) = c("max_catch","weir_height","spill_len","max_volume")#Units c(m2,meter,meter,m3)
-
+#Com Constants
+HRU_Areas1 = t(LU_details$Per_Area)*t1_const$max_catch/100
+  
 
 #############################
 #Initialize
@@ -253,8 +259,48 @@ for(i in 1:samay) {
       SM1[i,j] = temp_SM - DP1[i,j] - ET1[i,j]
       }
   }
+  #Estimate the deep percolation from all the HRU's
   if (i > 1) {AQ1[i] = AQ1[i-1] + sum(DP1[i,])
   } else {AQ1[1] = AQ1_ini + sum(DP1[i,])}
+  
+  #Tank1 Start
+  
+  #Get the tank area from the previous timestep
+  if (i == 1) {
+    t1_area[1] = 0
+    t1_vol[1] = 0
+    t1_temp_area = 0
+    t1_temp_vol = 0
+  } else {
+    t1_temp_area = t1_area[i-1]
+    t1_temp_vol = t1_vol[i-1]
+  } 
+  #Estimate the area for each of the HRU's (special HRU is Fallow which converts to tank)
+  HRU_Areas1_temp = HRU_Areas1
+  HRU_Areas1_temp[1] = HRU_Areas1_temp[1] - t1_temp_area
+  t1_inflow_temp = (IF1[i,] + runoff[i,]) * HRU_Areas1_temp
+  t1_inflow[i] = sum(t1_inflow_temp)
+  
+  #Estimate the water added to the tank by direct precipitation
+  t1_precip[i] = cur_P * t1_temp_area
+  
+  #Update the temp_tank volume to include the inputs calculated above
+  t1_temp_vol = t1_temp_vol + t1_precip[i] + t1_inflow[i]
+  
+  #Update the t1_temp area and then subsequently the fallow area
+  #Stage-Volume relationship from Mike data
+  t1_temp_stage = (t1_temp_vol/22914)^(1/1.9461)
+  #Stage Area 
+  t1_temp_area=42942*(t1_temp_stage)^1.0993
+  #HRU_Areas update
+  HRU_Areas1_temp[1] = HRU_Areas1[1] - t1_temp_area
+  
+  #ET from tank
+  t1_ET[i]=t1_temp_area*PET[cur_month]*(1/1000) #m3/day
+  
+  
+  
+  
   i=i+1
  }
   
@@ -266,41 +312,6 @@ inflow1 = IF1 + runoff
 inflow2 = apply(inflow1, 1, mean)
 
 plot(inflow2, type = 'l')
-  
-  if (cur_P==0){}
-  #Bucket 1  
-  if (i>1){
-    cur_S1=S1[i-1]
-  } else {cur_S1=ini_S1}
-  
-  Q1f[i]=(cur_S1-maxS1)
-  if (Q1f[i]<0){Q1f[i]=0}
-  Qw[i]=(cur_S1/tw)*h #units of tw are days, so reduce that to timestep of FE
-  ET1[i]=cur_PET*(cur_S1/maxS1)*0
-  
-  S1[i]=cur_S1+(cur_P-Q1f[i]-Qw[i]-ET1[i])
-  #Bucker 2  
-  if (i>1){
-    cur_S2=S2[i-1]
-  } else {cur_S2=ini_S2}
-  
-  ET2[i]=cur_PET*(cur_S2/Se)
-  S2[i]=cur_S2+(Qw[i])#-ET2[i])
-  if (S2[i]>theta_fc){
-    Qr[i]=S2[i]-theta_fc
-  } else {Qr[i]=0}
-  
-  #Bucket 3
-  if (i>1){
-    cur_S3=S3[i-1]
-  } else {cur_S3=ini_S3}
-  
-  Qx[i]=ET2[i]
-  
-  S3[i]=cur_S3+(Qr[i]-Qx[i])
-  
-  #i=i+1
-  #print(i)
   
   #Start the tank water balance every after every (1/h) steps  
   if (i%%(1/h)==0){
