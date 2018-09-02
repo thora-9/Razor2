@@ -4,10 +4,10 @@ require(lubridate)
 require(tibble)
 require(dplyr)
 require(hydroGOF)
-source('juli_ET.R')
+#source('juli_ET.R')
 source('juli_ET_v2.R')
-source('stage1.R')
-source('euler.R')
+#source('stage1.R')
+#source('euler.R')
 source('SCS_curve_v2.R')
 source('CN_calendar.R')
 source('Kc_calendar.R')
@@ -35,6 +35,9 @@ t2 = zoo(input2[4],date_seq)
 t_daily = subdaily2daily(t2,FUN=sum)*1000
 t_daily = t_daily[1:163]
 #t_daily[1:length(t_daily)]=10
+
+########################### Field Data
+t1_field_stage = read.csv('tank1_fieldstage.csv',stringsAsFactors = FALSE)
 
 #############################
 ##Box 1: Runoff generation
@@ -94,7 +97,7 @@ PET = c(4.1,4.4,5.7,5.2,5.3,4.7,4.4,4.6,4.6,3.9,3.5,3.7)
 ##Box 2: Soil Moisture box
 #############################
 #Used to calculate the readily available moisture in the soil
-rho1 = 0.3
+rho = 0.3
 #The max percolation rate calculated using Saturated hydraulic conductivity
 max_percolation = (5*10^-5)*(24*60*60) #mm/day; from Gowing paper
 Rice_max_percolation = 7 #mm/day; from Gowing paper
@@ -111,6 +114,16 @@ BF1_thresh = 0.7 #percent of max aquifer storage
 BF1_max = 3 #mm/day
 BF_coeff = 1 #default 
 
+AQ2_max = 600
+AQ2_ini = 250
+LF2_thresh = 0.3 #percent of max aquifer storage
+LF2_max = 2 #mm/day
+LF_coeff = 1 #default 
+BF2_thresh = 0.7 #percent of max aquifer storage
+BF2_max = 3 #mm/day
+BF_coeff = 1 #default 
+
+
 #############################
 ##Soil Parameters
 #############################
@@ -120,29 +133,29 @@ Soil_FC = 0.2825
 Soil_sat = 0.415
 max_percolation =  4.32 #mm/day; from Gowing paper
 TAW1 = Soil_FC - Soil_WP
-RAW1 = rho1*TAW1
+RAW1 = rho*TAW1
+
+TAW2 = Soil_FC - Soil_WP
+RAW2 = rho*TAW2
 
 pad_BH = 70
 soil_paddy1 = vector()
 soil_paddy1[1] = 0
+
+soil_paddy2 = vector()
+soil_paddy2[1] = 0
 
 #############################
 ##Variables
 #############################
 Q1f = vector()
 ET1 = vector()
-ET2 = vector()
-Qw = vector()
-Qr = vector()
-Qx = vector()
 S1 = vector()
 S2 = vector()
 S3 = vector()
 Qf = vector()
 Qu = vector()
-Sc1 = vector()
-Sc2 = vector()
-runoff = matrix(nrow = length(t_daily),ncol = nrow(LU1_details))
+RF1 = matrix(nrow = length(t_daily),ncol = nrow(LU1_details))
 DP1 = matrix(nrow = length(t_daily),ncol = nrow(LU1_details))
 ET1 = matrix(nrow = length(t_daily),ncol = nrow(LU1_details))
 SM1 = matrix(nrow = length(t_daily),ncol = nrow(LU1_details))
@@ -150,7 +163,28 @@ IF1 = matrix(nrow = length(t_daily),ncol = nrow(LU1_details))
 AQ1 = vector()
 BF1 = vector()
 LF1 = vector()
-runoff_vol = matrix(nrow = length(t_daily),ncol = nrow(LU1_details))
+RF1_vol = matrix(nrow = length(t_daily),ncol = nrow(LU1_details))
+mod_loss = 0
+
+#############################
+Q2f = vector()
+ET2 = vector()
+S1 = vector()
+S2 = vector()
+S3 = vector()
+Qf = vector()
+Qu = vector()
+Sc2 = vector()
+Sc1 = vector()
+RF2 = matrix(nrow = length(t_daily),ncol = nrow(LU2_details))
+DP2 = matrix(nrow = length(t_daily),ncol = nrow(LU2_details))
+ET2 = matrix(nrow = length(t_daily),ncol = nrow(LU2_details))
+SM2 = matrix(nrow = length(t_daily),ncol = nrow(LU2_details))
+IF2 = matrix(nrow = length(t_daily),ncol = nrow(LU2_details))
+AQ2 = vector()
+BF2 = vector()
+LF2 = vector()
+RF2_vol = matrix(nrow = length(t_daily),ncol = nrow(LU2_details))
 mod_loss = 0
 
 #Tank variables
@@ -170,17 +204,49 @@ t1_GW = vector()
 t1_ET = vector()
 t1_BF = vector()
 t1_all = data.frame(matrix(ncol = 8, nrow = 0))
-t1_const = as.data.frame(cbind(5e6,3.595,30,276405))
-colnames(t1_const) = c("max_catch","weir_height","spill_len","max_volume")#Units c(m2,meter,meter,m3)
+t1_const = as.data.frame(cbind(5e6,3.595,30,276405,27e4))
+colnames(t1_const) = c("max_catch","weir_height","spill_len","max_volume","command")#Units c(m2,meter,meter,m3)
+
+inflow_f2 = vector()
+inflow_s2 = vector()
+t2_inflow = vector()
+t2_precip = vector()
+t2_area = vector()
+t2_area0 = 0
+t2_vol = vector()
+t2_vol0 = 0
+t2_stage = vector()
+t2_area = vector()
+t2_spill = vector()
+t2_sluice = vector()
+t2_GW = vector()
+t2_ET = vector()
+t2_BF = vector()
+t2_const = as.data.frame(cbind(16.2e6,3.595,30,407513,45e4))
+colnames(t2_const) = c("max_catch","weir_height","spill_len","max_volume","command")#Units c(m2,meter,meter,m3)
+
+
 #Com Constants
+#Divide by 100 to convert the Percent_Area 
 HRU_Areas1 = t(LU1_details$Per_Area)*t1_const$max_catch/100
-  
+
+LU2_com = subset(LU2_details,LU2_details$SW_Irr=='Y')
+HRU_Areas2a = t(LU2_com$Per_Area)*t1_const$command/100
+
+LU2_catch = subset(LU2_details,LU2_details$SW_Irr=='N')
+HRU_Areas2b = t(LU2_catch$Per_Area)*t2_const$max_catch/100
+
+HRU_Areas2 = c(HRU_Areas2b, HRU_Areas2a)
+
 
 #############################
 #Initialize
 #############################
 samay = length(t_daily)
 i = 1
+#For comparing potential vs actual ET
+PET_max = vector()
+TP_max = vector()
 
 for(i in 1:samay) {
   
@@ -197,91 +263,94 @@ for(i in 1:samay) {
     rain_5 = 500
   } else {rain_5 = 30}
   
-  j = 3
+  j1 = 3
+  ############################################################  ############################################################
+  ############################################################  ############################################################
+  ############################################################  ############################################################
   
-  for (j in 1:ncol(CN1_cal)){
-    cur_CN = CN1_cal[doy,j]
+  for (j1 in 1:ncol(CN1_cal)){
+    cur_CN = CN1_cal[doy,j1]
     cur_pars = filter(LU_Parameters,CN==cur_CN)
     cur_LU = cur_pars$LU
-    cur_kc = Kc1_cal[doy,j]
+    cur_kc = Kc1_cal[doy,j1]
     if(cur_LU != 'Rice'){
-      runoff[i,j] = SCS_curve(cur_CN,cur_P,rain_5)
-      runoff_vol[i,j] = (LU1_details$Per_Area[j] * t1_const$max_catch) * runoff[i,j] * (1/1000)
+      RF1[i,j1] = SCS_curve(cur_CN,cur_P,rain_5)
+      RF1_vol[i,j1] = (LU1_details$Per_Area[j1] * t1_const$max_catch) * RF1[i,j1] * (1/1000)
       if (i > 1) {
       #Keep an eye on if I should be calculating Percolation and ET based on the modified SM vs exact SM from previous timestep  
-      temp_SM = SM1[i-1,j] + cur_P - runoff[i,j]
+      temp_SM = SM1[i-1,j1] + cur_P - RF1[i,j1]
       #Remove the interflow volume right away (if applicable)
       if (temp_SM>cur_pars$RD*Soil_sat){
         #Purely to ensure that the change in LU doesn't lead to interflow when there is no rainfall due to changing root depth
-        if (cur_P == 0 & (CN1_cal[doy,j] != CN1_cal[doy-1,j])) {
+        if (cur_P == 0 & (CN1_cal[doy,j1] != CN1_cal[doy-1,j1])) {
           mod_loss_temp = (temp_SM - cur_pars$RD*Soil_sat)
           mod_loss = mod_loss + (temp_SM - cur_pars$RD*Soil_sat)
-          IF1[i,j] = 0 
-          temp_SM = temp_SM - IF1[i,j] - mod_loss_temp
+          IF1[i,j1] = 0 
+          temp_SM = temp_SM - IF1[i,j1] - mod_loss_temp
           } else {
-        IF1[i,j] = temp_SM - cur_pars$RD*Soil_sat
-        temp_SM = temp_SM - IF1[i,j]
+        IF1[i,j1] = temp_SM - cur_pars$RD*Soil_sat
+        temp_SM = temp_SM - IF1[i,j1]
           }
       } else {
-        IF1[i,j] = 0
+        IF1[i,j1] = 0
       }
       #Basically call the function Percolation that uses one of the methods described in Raven
-      DP1[i,j] = Percolation(temp_SM,max_percolation,cur_pars)
+      DP1[i,j1] = Percolation(temp_SM,max_percolation,cur_pars)
       
       #Estimate the evapotranspiration by first estimating the Water stress factor Ks
       TAW1 = (cur_pars$RD * Soil_FC)-(cur_pars$RD * Soil_WP)
-      RAW1 = rho1 * TAW1
-      #Adjusted soil moisture is basically the total SM - WP
+      RAW1 = rho * TAW1
+      #Adj1usted soil moisture is basically the total SM - WP
       AdSM = temp_SM - (cur_pars$RD * Soil_WP)
       if (AdSM < (TAW1-RAW1)){
         #Keep an eye on whether to use SM1[i-1,j] or temp_SM
         Ks = AdSM / (TAW1-RAW1)
-        ET1[i,j] = Ks * cur_kc * PET[cur_month]
-        if (ET1[i,j] < 0) {ET1[i,j] = 0}
+        ET1[i,j1] = Ks * cur_kc * PET[cur_month]
+        if (ET1[i,j1] < 0) {ET1[i,j1] = 0}
       } else {
-        ET1[i,j] = 1*cur_kc*PET[cur_month]
+        ET1[i,j1] = 1*cur_kc*PET[cur_month]
       }
       #The way it is setup right now the SM will never end the day at saturation point
-      SM1[i,j] = temp_SM - DP1[i,j] - ET1[i,j]
+      SM1[i,j1] = temp_SM - DP1[i,j1] - ET1[i,j1]
       } else {
-        SM1[i,j] = cur_P - runoff[i,j]
-        if (SM1[i,j]>cur_pars$RD*Soil_sat){
-           DP1[i,j] = max_percolation
-           IF1[i,j] = SM1[i,j] - cur_pars$RD * Soil_sat - max_percolation
-           ET1[i,j] = 1 * cur_kc * PET[cur_month]
-           SM1[i,j] = SM1[i,j] - DP1[i,j] - IF1[i,j] - ET1[i,j]
-        } else if (SM1[i,j] < cur_pars$RD * Soil_sat){
-           DP1[i,j] = Percolation(SM1[i,j],max_percolation,cur_pars)
-           IF1[i,j] = 0
+        SM1[i,j1] = cur_P - RF1[i,j1]
+        if (SM1[i,j1]>cur_pars$RD*Soil_sat){
+           DP1[i,j1] = max_percolation
+           IF1[i,j1] = SM1[i,j1] - cur_pars$RD * Soil_sat - max_percolation
+           ET1[i,j1] = 1 * cur_kc * PET[cur_month]
+             SM1[i,j1] = SM1[i,j1] - DP1[i,j1] - IF1[i,j1] - ET1[i,j1]
+        } else if (SM1[i,j1] < cur_pars$RD * Soil_sat){
+           DP1[i,j1] = Percolation(SM1[i,j1],max_percolation,cur_pars)
+           IF1[i,j1] = 0
            #Need to add a value to scale the AET based on the soil moisture level 
            #Ignore the values generated at i=1
-           ET1[i,j] = 1 * cur_kc * PET[cur_month]
-           SM1[i,j] = SM1[i,j] - DP1[i,j] - IF1[i,j] - ET1[i,j]
-           if (SM1[i,j] <= 0){SM1[i,j] = 0}
+           ET1[i,j1] = 1 * cur_kc * PET[cur_month]
+           SM1[i,j1] = SM1[i,j1] - DP1[i,j1] - IF1[i,j1] - ET1[i,j1]
+           if (SM1[i,j1] <= 0){SM1[i,j1] = 0}
       } else {
         (print('Error due to Deep percolation calculation'))
         } 
       } 
     } else if (cur_LU=='Rice'){
-      temp_SM = SM1[i-1,j] + cur_P
+      temp_SM = SM1[i-1,j1] + cur_P
       Rice_SM_sat = 0.415*cur_pars$RD
       Rice_run_thresh = Rice_SM_sat + pad_BH
       #Calculate the runoff from the rice fields here. Runoff only starts when the total SM value on the rice fields is greater than 
       #the bund height + soil saturation water content
       if (temp_SM > Rice_run_thresh){
-        runoff[i,j] = temp_SM - Rice_run_thresh
-        runoff_vol[i,j] = (LU1_details$Per_Area[j] * t1_const$max_catch) * runoff[i,j] * (1/1000)
-        temp_SM = temp_SM - runoff[i,j]
+        RF1[i,j1] = temp_SM - Rice_run_thresh
+        RF1_vol[i,j1] = (LU1_details$Per_Area[j1] * t1_const$max_catch) * RF1[i,j1] * (1/1000)
+        temp_SM = temp_SM - RF1[i,j1]
       } else if (temp_SM < Rice_run_thresh){
-        runoff[i,j] = 0
-        runoff_vol[i,j] = (LU1_details$Per_Area[j] * t1_const$max_catch) * runoff[i,j] * (1/1000)
+        RF1[i,j1] = 0
+        RF1_vol[i,j1] = (LU1_details$Per_Area[j1] * t1_const$max_catch) * RF1[i,j1] * (1/1000)
       } else {print('Error due to Rice runoff calculation')}
       #Start calculating deep percolation from the rice fields here using the method in Gowing paper
-      DP1[i,j] = Percolation_Rice(temp_SM,Rice_max_percolation,cur_pars)
+      DP1[i,j1] = Percolation_Rice(temp_SM,Rice_max_percolation,cur_pars)
       #Estimate the evapotranspiration by first estimating the Water stress factor Ks
       TAW1 = (cur_pars$RD * Soil_FC)-(cur_pars$RD * Soil_WP)
-      RAW1 = rho1 * TAW1
-      #Adjusted soil moisture is basically the total SM - WP
+      RAW1 = rho * TAW1
+      #Adj1usted soil moisture is basically the total SM - WP
       if (temp_SM > Rice_SM_sat){
         AdSM = Rice_SM_sat -(cur_pars$RD * Soil_WP)
       } else if (temp_SM < Rice_SM_sat) {
@@ -290,17 +359,19 @@ for(i in 1:samay) {
       if (AdSM < (TAW1-RAW1)){
         #Keep an eye on whether to use SM1[i-1,j] or temp_SM
         Ks = AdSM / (TAW1-RAW1)
-        ET1[i,j] = Ks * cur_kc * PET[cur_month]
-        if (ET1[i,j] < 0) {ET1[i,j] = 0}
+        ET1[i,j1] = Ks * cur_kc * PET[cur_month]
+        if (ET1[i,j1] < 0) {ET1[i,j1] = 0}
       } else {
-        ET1[i,j] = 1*cur_kc*PET[cur_month]
+        ET1[i,j1] = 1*cur_kc*PET[cur_month]
       }
       #Interflow will always be zero
-      IF1[i,j] = 0
+      IF1[i,j1] = 0
       #The way it is setup right now the SM will never end the day at saturation point
-      SM1[i,j] = temp_SM - DP1[i,j] - ET1[i,j]
+      SM1[i,j1] = temp_SM - DP1[i,j1] - ET1[i,j1]
       }
   }
+  ############################################################  ############################################################
+  ############################################################  ############################################################
   
   #Tank1 Start
   
@@ -317,7 +388,7 @@ for(i in 1:samay) {
   #Estimate the area for each of the HRU's (special HRU is Fallow which converts to tank)
   HRU_Areas1_temp = HRU_Areas1
   HRU_Areas1_temp[1] = HRU_Areas1_temp[1] - t1_temp_area
-  t1_inflow_temp = (IF1[i,] + runoff[i,]) * HRU_Areas1_temp * (1/1000)
+  t1_inflow_temp = (IF1[i,] + RF1[i,]) * HRU_Areas1_temp * (1/1000)
   t1_inflow[i] = sum(t1_inflow_temp)
   
   
@@ -395,32 +466,161 @@ for(i in 1:samay) {
   
   #cur_all=cbind(t1_stage[j],t1_area[j],t1_vol[j],inflow1[j],coredata(inflow_vol),t1_ET[j],t1_sluice[j],t1_spill[j],t1_GW[j])
   #t1_all=rbind(t1_all,cur_all)
+  ############################################################  ############################################################
+  ############################################################  ############################################################
+  ############################################################  ############################################################
+  ############################################################  ############################################################
+  j2=5
+  for (j2 in 1:ncol(CN2_cal)){
+    cur_CN = CN2_cal[doy,j2]
+    cur_pars = filter(LU_Parameters,CN==cur_CN)
+    cur_LU = cur_pars$LU
+    cur_kc = Kc2_cal[doy,j2]
+    SW_irrigation = LU2_details$SW_Irr[j2]
+    if(cur_LU != 'Rice'){
+    #Add the sluice from the upstream tank here for areas that are irrigated by Surface water   
+      if (SW_irrigation == 'Y') {
+        #Split the sluice calculated above based on the percent command area of this HRU
+        HRU_per_area = LU2_details$Per_Area[j2]/100
+        #Convert the sluice volume to depth by dividing by the area of the command HRU
+        sluice_depth = t1_sluice[i]*100*HRU_per_area / HRU_Areas2 [j2]
+        rain_sluice = cur_P + sluice_depth
+      } else {rain_sluice = cur_P}
+      
+      RF2[i,j2] = SCS_curve(cur_CN, rain_sluice, rain_5)
+      RF2_vol[i,j2] = (LU2_details$Per_Area[j2] * t2_const$max_catch) * RF2[i,j2] * (1/1000)
+      
+      if (i > 1) {
+        #Keep an eye on if I should be calculating Percolation and ET based on the modified SM vs exact SM from previous timestep  
+        temp_SM = SM2[i-1,j2] + rain_sluice - RF2[i,j2] 
+        #Remove the interflow volume right away (if applicable)
+        if (temp_SM>cur_pars$RD*Soil_sat){
+          #Purely to ensure that the change in LU doesn't lead to interflow when there is no rainfall due to changing root depth
+          if (cur_P == 0 & (CN2_cal[doy,j2] != CN2_cal[doy-1,j2])) {
+            mod_loss_temp = (temp_SM - cur_pars$RD*Soil_sat)
+            mod_loss = mod_loss + (temp_SM - cur_pars$RD*Soil_sat)
+            IF2[i,j2] = 0 
+            temp_SM = temp_SM - IF2[i,j2] - mod_loss_temp
+          } else {
+            IF2[i,j2] = temp_SM - cur_pars$RD*Soil_sat
+            temp_SM = temp_SM - IF2[i,j2]
+          }
+        } else {
+          IF2[i,j2] = 0
+        }
+        #Basically call the function Percolation that uses one of the methods described in Raven
+        DP2[i,j2] = Percolation(temp_SM,max_percolation,cur_pars)
+        
+        #Estimate the evapotranspiration by first estimating the Water stress factor Ks
+        TAW2 = (cur_pars$RD * Soil_FC)-(cur_pars$RD * Soil_WP)
+        RAW2 = rho * TAW2
+        #Adj2usted soil moisture is basically the total SM - WP
+        AdSM = temp_SM - (cur_pars$RD * Soil_WP)
+        if (AdSM < (TAW2-RAW2)){
+          #Keep an eye on whether to use SM1[i-1,j] or temp_SM
+          Ks = AdSM / (TAW2-RAW2)
+          ET2[i,j2] = Ks * cur_kc * PET[cur_month]
+          if (ET2[i,j2] < 0) {ET2[i,j2] = 0}
+        } else {
+          ET2[i,j2] = 1*cur_kc*PET[cur_month]
+        }
+        #The way it is setup right now the SM will never end the day at saturation point
+        SM2[i,j2] = temp_SM - DP2[i,j2] - ET2[i,j2]
+      } else {
+        SM2[i,j2] = rain_sluice - RF2[i,j2]
+        if (SM2[i,j2]>cur_pars$RD*Soil_sat){
+          DP2[i,j2] = max_percolation
+          IF2[i,j2] = SM2[i,j2] - cur_pars$RD * Soil_sat - max_percolation
+          ET2[i,j2] = 1 * cur_kc * PET[cur_month]
+          SM2[i,j2] = SM2[i,j2] - DP2[i,j2] - IF2[i,j2] - ET2[i,j2]
+        } else if (SM2[i,j2] < cur_pars$RD * Soil_sat){
+          DP2[i,j2] = Percolation(SM2[i,j2],max_percolation,cur_pars)
+          IF2[i,j2] = 0
+          #Need to add a value to scale the AET based on the soil moisture level 
+          #Ignore the values generated at i=1
+          ET2[i,j2] = 1 * cur_kc * PET[cur_month]
+          SM2[i,j2] = SM2[i,j2] - DP2[i,j2] - IF2[i,j2] - ET2[i,j2]
+          if (SM2[i,j2] <= 0){SM2[i,j2] = 0}
+        } else {
+          (print('Error due to Deep percolation calculation'))
+        } 
+      } 
+    } else if (cur_LU=='Rice'){
+      
+      #Add the sluice from the upstream tank here for areas that are irrigated by Surface water   
+      if (SW_irrigation == 'Y') {
+        #Split the sluice calculated above based on the percent command area of this HRU
+        HRU_per_area = LU2_details$Per_Area[j2]/100
+        #Convert the sluice volume to depth by dividing by the area of the command HRU; convert meter to mm
+        sluice_depth = t1_sluice[i]*100*HRU_per_area / HRU_Areas2 [j2]
+        rain_sluice = cur_P + sluice_depth
+      } else {rain_sluice = cur_P}
+      
+      temp_SM = SM2[i-1,j2] + rain_sluice
+      Rice_SM_sat = 0.415*cur_pars$RD
+      Rice_run_thresh = Rice_SM_sat + pad_BH
+      #Calculate the runoff from the rice fields here. Runoff only starts when the total SM value on the rice fields is greater than 
+      #the bund height + soil saturation water content
+      if (temp_SM > Rice_run_thresh){
+        RF2[i,j2] = temp_SM - Rice_run_thresh
+        RF2_vol[i,j2] = (LU2_details$Per_Area[j2] * t2_const$max_catch) * RF2[i,j2] * (1/1000)
+        temp_SM = temp_SM - RF2[i,j2]
+      } else if (temp_SM < Rice_run_thresh){
+        RF2[i,j2] = 0
+        RF2_vol[i,j2] = (LU2_details$Per_Area[j2] * t2_const$max_catch) * RF2[i,j2] * (1/1000)
+      } else {print('Error due to Rice runoff calculation')}
+      #Start calculating deep percolation from the rice fields here using the method in Gowing paper
+      DP2[i,j2] = Percolation_Rice(temp_SM,Rice_max_percolation,cur_pars)
+      #Estimate the evapotranspiration by first estimating the Water stress factor Ks
+      TAW2 = (cur_pars$RD * Soil_FC)-(cur_pars$RD * Soil_WP)
+      RAW2 = rho * TAW2
+      #Adj2usted soil moisture is basically the total SM - WP
+      if (temp_SM > Rice_SM_sat){
+        AdSM = Rice_SM_sat -(cur_pars$RD * Soil_WP)
+      } else if (temp_SM < Rice_SM_sat) {
+        AdSM = temp_SM -(cur_pars$RD * Soil_WP)
+      } else {print('Error due to Soil Moisture--ET calculation')}
+      if (AdSM < (TAW2-RAW2)){
+        #Keep an eye on whether to use SM1[i-1,j] or temp_SM
+        Ks = AdSM / (TAW2-RAW2)
+        ET2[i,j2] = Ks * cur_kc * PET[cur_month]
+        if (ET2[i,j2] < 0) {ET2[i,j2] = 0}
+      } else {
+        ET2[i,j2] = 1*cur_kc*PET[cur_month]
+      }
+      #Interflow will always be zero
+      IF2[i,j2] = 0
+      #The way it is setup right now the SM will never end the day at saturation point
+      SM2[i,j2] = temp_SM - DP2[i,j2] - ET2[i,j2]
+    }
+  }
   
+  PET_max[i] = Kc2_cal[doy,5]*PET[cur_month]
+  TP_max[i] = Kc2_cal[i,5]
   
   i=i+1
- }
-  
+}
 
+
+par(mfrow = c(2,2))  
+
+plot(t_daily,type = 'l')
+
+plot(t1_sluice,type = 'l')
+
+plot(SM1[,2],type = 'l',ylim = c(0,200))
+lines(SM2[,2],col='green')
+lines(SM2[,5])
+
+plot(ET2[,2],type = 'l',col='green',ylim = c(0,7))
+lines(ET2[,5])
+lines(PET_max,col='red')
 
 plot(t1_stage[12:110],type = 'l',ylim=c(0,4))
 lines(t1_field_stage$T1_stage.m.[12:110],col = 'purple')
 
 NSE.default(t1_stage[12:110],t1_field_stage$T1_stage.m.[12:110])
 plot(AQ1,type = 'l')
-  
-  #Estimating the Soil Moisture Balance for each HRU
-  
-inflow1 = IF1 + runoff
-
-inflow2 = apply(inflow1, 1, mean)
-
-plot(inflow2, type = 'l')
-  
-t1_field_stage = read.csv('tank1_fieldstage.csv',stringsAsFactors = FALSE)
-
-
-plot(t1_stage,type = 'l')
-lines(t1_field_stage$T1_stage.m.,col = 'purple')
-
-apply(input2,2,sum)
+i=82
+j2=5
 
