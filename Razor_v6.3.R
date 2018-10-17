@@ -27,9 +27,10 @@ input_file = "Hourly_rain.csv"
 input2 = read.csv(input_file,header=TRUE)
 date_seq = seq(as.POSIXct("2013-09-26 00:00"),by="hour",length.out = 5324)
 
-t2 = zoo(input2[7],date_seq)
+t2 = zoo(input2[4],date_seq)
 
 t_daily = subdaily2daily(t2,FUN=sum)*1000
+t_daily = t_daily[1:163]
 #t_daily[1:length(t_daily)]=10
 
 #############################
@@ -37,10 +38,10 @@ t_daily = subdaily2daily(t2,FUN=sum)*1000
 #############################
 LU_details = tribble(
                     ~LU1, ~LU2, ~LU3, ~Per_Area,
-                    'Fallow','Fallow','Fallow',20,
+                    'Fallow','Fallow','Fallow',30,
                     'Rice', 'Cotton', 'Fallow', 50,
-                    'KH_Millet', 'Fallow','Fallow',20,
-                    'Juliflora','Fallow','Fallow',10)
+                    'KH_Millet', 'Fallow','Fallow',0,
+                    'Juliflora','Fallow','Fallow',20)
 
 LU_num = 3                    
               
@@ -87,7 +88,7 @@ RD = 500
 Soil_WP = 0.1725
 Soil_FC = 0.2825
 Soil_sat = 0.415
-max_percolation = 4.32 #mm/day; from Gowing paper
+max_percolation =  4.32 #mm/day; from Gowing paper
 TAW1 = Soil_FC - Soil_WP
 RAW1 = rho1*TAW1
 
@@ -119,7 +120,6 @@ IF1 = matrix(nrow = length(t_daily),ncol = nrow(LU_details))
 AQ1 = vector()
 runoff_vol = matrix(nrow = length(t_daily),ncol = nrow(LU_details))
 
-HRU_Areas1 = t(LU_details$Per_Area)*
 
 #Tank variables
 inflow_f1 = vector()
@@ -278,11 +278,11 @@ for(i in 1:samay) {
   #Estimate the area for each of the HRU's (special HRU is Fallow which converts to tank)
   HRU_Areas1_temp = HRU_Areas1
   HRU_Areas1_temp[1] = HRU_Areas1_temp[1] - t1_temp_area
-  t1_inflow_temp = (IF1[i,] + runoff[i,]) * HRU_Areas1_temp
+  t1_inflow_temp = (IF1[i,] + runoff[i,]) * HRU_Areas1_temp * (1/1000)
   t1_inflow[i] = sum(t1_inflow_temp)
   
   #Estimate the water added to the tank by direct precipitation
-  t1_precip[i] = cur_P * t1_temp_area
+  t1_precip[i] = cur_P * t1_temp_area *(1/1000)
   
   #Update the temp_tank volume to include the inputs calculated above
   t1_temp_vol = t1_temp_vol + t1_precip[i] + t1_inflow[i]
@@ -296,14 +296,55 @@ for(i in 1:samay) {
   HRU_Areas1_temp[1] = HRU_Areas1[1] - t1_temp_area
   
   #ET from tank
-  t1_ET[i]=t1_temp_area*PET[cur_month]*(1/1000) #m3/day
+  t1_ET[i] = t1_temp_area * PET[cur_month] * (1/1000) #m3/day
   
+  ####Compare the tank capacity and current volume of water in tank.
+  vol_diff1 = t1_temp_vol - t1_const$max_volume
+  if (vol_diff1 >= 0){
+    t1_spill[i] = vol_diff1
+  } else{ t1_spill[i] = 0 }
   
+  ####Sluice Outflow
+  Qo1a = (( t1_temp_stage - 0.785 ) * 5.1903 ) * 86.4 #86.4 Converst L/s to m3/d
+  Qo1b = ((( t1_temp_stage - 1.185 ) * 9.6768 ) + (( t1_temp_stage - 1.185 ) * 4.9196 )) * 86.4 #86.4 Converst L/s to m3/d
+  
+  if ( Qo1a < 0 ){ Qo1a = 0 }
+  if ( Qo1b < 0 ) { Qo1b = 0 }
+  
+  if ( t1_temp_stage < 0.785 ){
+    t1_sluice[i] = 0 } else if (0.785 < t1_temp_stage & t1_temp_stage < 1.185) {
+      t1_sluice[i] = Qo1a} else if( t1_temp_stage > 1.185 ){
+        t1_sluice[i] = ( Qo1a + Qo1b )}
+  
+  ###Spillage from upstream tank
+  t1_spill_add = 0
+  
+  ####GW exchange- Mike paper
+  GW_loss1 = 8.6 * t1_temp_stage - 6.5 #mm/day
+  if ( GW_loss1 < 0) { GW_loss1 = 0}
+  t1_GW[i] = ( GW_loss1/1000 ) * t1_temp_area #m3/day
+  
+  #Total Storage change
+  t1_vol[i] = t1_temp_vol - ( t1_ET[i] + t1_sluice[i] + t1_spill[i] + t1_GW[i] )
+  
+  #Stage-Volume relationship from Mike data
+  t1_stage[i] = (t1_vol[i]/22914) ^ (1/1.9461)
+  #Stage Area 
+  t1_area[i] = 42942 * (t1_stage[i]) ^ 1.0993
+  
+  #cur_all=cbind(t1_stage[j],t1_area[j],t1_vol[j],inflow1[j],coredata(inflow_vol),t1_ET[j],t1_sluice[j],t1_spill[j],t1_GW[j])
+  #t1_all=rbind(t1_all,cur_all)
   
   
   i=i+1
  }
   
+
+
+plot(t1_stage[12:163],type = 'l',ylim=c(0,4))
+lines(t1_field_stage$T1_stage.m.[12:174],col = 'purple')
+
+plot(AQ1,type = 'l')
   
   #Estimating the Soil Moisture Balance for each HRU
   
@@ -313,79 +354,11 @@ inflow2 = apply(inflow1, 1, mean)
 
 plot(inflow2, type = 'l')
   
-  #Start the tank water balance every after every (1/h) steps  
-  if (i%%(1/h)==0){
-    j=i*h
-    inflow_f1[j]=sum(Q1f[(i-(1/h)):i])
-    inflow_s1[j]=0#sum(Q2u[(i-(1/h)):i])*0
-    inflow1[j]=inflow_f1[j]+inflow_s1[j]
-    
-    if(j==1){
-      t1_area_cur=t1_area0
-    } else {t1_area_cur=t1_area[j-1]}
-    
-    if(j==1){
-      t1_vol_cur=t1_vol0
-    } else {t1_vol_cur=t1_vol[j-1]}
-    #Rainfall directly on the tank in that timestep
-    rain_t1=t1_area_cur*t_daily[j]*(1/1000) #in meters
-    
-    inflow_vol=rain_t1+((inflow1[j])*(t1_const[1]-t1_area_cur)*(1/1000))
-    t1_vol[j]=t1_vol_cur+rain_t1+inflow_vol#((inflow1[j])*(t1_const[1]-t1_area_cur)*(1/1000))
-    
-    #Stage-Volume relationship from Mike data
-    t1_stage[j]=(t1_vol[j]/22914)^(1/1.9461)
-    #Stage Area 
-    t1_area[j]=42942*(t1_stage[j])^1.0993
-    
-    # ####Spillway taken from Sakti paper modified to take absolute value of difference
-    # if(tank1_const[2]-stage1<0){
-    #   form_spill1=1.7*tank1_const[3]*(abs(tank1_const[2]-stage1))^(3/2)*(24*60*60)
-    # } else{form_spill1=0}
-    
-    ####ET from tanks
-    t1_ET[j]=t1_area[j]*juli_ET(cur_month)*(1/1000) #m3/day
-    
-    ####Compare the tank capacity and current volume of water in tank.
-    vol_diff1=t1_vol[j]-tank1_const[4]
-    if (vol_diff1>=0){
-      t1_spill[j]=vol_diff1
-    } else{t1_spill[j]=0}
-    
-    
-    ####Sluice Outflow
-    Qo1a = ((t1_stage[j]-.785)*5.1903)*86.4 #86.4 Converst L/s to m3/d
-    Qo1b = (((t1_stage[j]-1.185)*9.6768)+((t1_stage[j]-1.185)*4.9196))*86.4 #86.4 Converst L/s to m3/d
-    
-    if (Qo1a<0){Qo1a = 0}
-    if (Qo1b<0) {Qo1b = 0}
-    
-    if (t1_stage[j]<0.785){
-      t1_sluice[j] = 0} else if(0.785<t1_stage[j] & t1_stage[j]<1.185) {
-        t1_sluice[j] = Qo1a} else if(t1_stage[j]>1.185){
-          t1_sluice[j] = (Qo1a + Qo1b)}
-    
-    ###Spillage from upstream tank
-    spill_add1=0
-    
-    ####GW exchange- Mike paper
-    GW_loss1=8.6*t1_stage[j]-6.5 #mm/day
-    t1_GW[j]=(GW_loss1/1000)*t1_area[j]#m3/day
-    
-    #Total Storage change
-    t1_vol[j]=t1_vol[j]-(t1_ET[j]+t1_sluice[j]+t1_spill[j]+t1_GW[j])
-    
-    #Stage-Volume relationship from Mike data
-    t1_stage[j]=(t1_vol[j]/22914)^(1/1.9461)
-    #Stage Area 
-    t1_area[j]=42942*(t1_stage[j])^1.0993
-    
-    cur_all=cbind(t1_stage[j],t1_area[j],t1_vol[j],inflow1[j],coredata(inflow_vol),t1_ET[j],t1_sluice[j],t1_spill[j],t1_GW[j])
-    t1_all=rbind(t1_all,cur_all)
-  }
-  
-}
+t1_field_stage = read.csv('tank1_fieldstage.csv',stringsAsFactors = FALSE)
 
 
+plot(t1_stage,type = 'l')
+lines(t1_field_stage$T1_stage.m.,col = 'purple')
 
+apply(input2,2,sum)
 

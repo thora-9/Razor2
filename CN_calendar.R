@@ -17,15 +17,15 @@ CN_calendar <- function (LU_details, LU_num, LU_Parameters){
     fall_CN=LU_Parameters %>% filter(LU=='Fallow') %>% select(CN) %>% as.integer()
     cal1=rep(0,doy) 
     cal2=rep(cur_pars$CN,abs(doy-grow_end))
-    if((365-grow_end)>0){
-      cal3=rep(0,365-grow_end)
+    if((366-grow_end)>0){
+      cal3=rep(0,366-grow_end)
     } else {
-      tmp1=grow_end-365
+      tmp1=grow_end-366
       cal1[1:tmp1]=cur_pars$CN
       cal2=cal2[1:(length(cal2)-tmp1)]
       cal3=NULL}
     cal_all=c(cal1,cal2,cal3)
-    } else {cal_all=rep(0,365)}
+    } else {cal_all=rep(0,366)}
     #Transpose individual calendars
     cal_out=cbind(cal_out,cal_all)
     colnames(cal_out)[b]=cur_LU

@@ -21,15 +21,15 @@ Kc_calendar <- function (LU_details, LU_num, LU_Parameters){
         cal2c=rep(cur_pars$KCM,cur_pars$LM)
         cal2d=rep(cur_pars$KCL,cur_pars$LL)
         cal2=c(cal2a,cal2b,cal2c,cal2d)
-        if((365-grow_end)>0){
-          cal3=rep(0,365-grow_end)
+        if((366-grow_end)>0){
+          cal3=rep(0,366-grow_end)
         } else {
-          tmp1=grow_end-365
+          tmp1=grow_end-366
           cal1[1:tmp1]=cal2[(length(cal2)-tmp1+1):length(cal2)]
           cal2=cal2[1:(length(cal2)-tmp1)]
           cal3=NULL}
         cal_all=c(cal1,cal2,cal3)
-      } else {cal_all=rep(0,365)}
+      } else {cal_all=rep(0,366)}
       #Transpose individual calendars
       cal_out=cbind(cal_out,cal_all)
       colnames(cal_out)[b]=cur_LU
